@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>*,*::before,*::after{box-sizing:border-box}body{margin:0;font-size:14px}</style>
+<title>ESC 불꽃놀이</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Sans+KR:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+  /* Layout: a full-bleed riverside night sky; the instrument panel sits on the water line. */
+  :root {
+    color-scheme: dark;
+    --sky-top: #0b0a24;
+    --sky-low: #2a1846;
+    --water: #0a1026;
+    --ink: #f3ecdf;
+    --dim: #a59fbd;
+    --ember: #ffb347;
+    --line: rgba(243, 236, 223, .22);
+    --display: "Black Han Sans", "Malgun Gothic", sans-serif;
+    --body: "IBM Plex Sans KR", "Malgun Gothic", sans-serif;
+    --mono: "IBM Plex Mono", Consolas, monospace;
+  }
+  html, body { height: 100%; }
+  body { background: var(--sky-top); color: var(--ink); font-family: var(--body); overflow: hidden; }
+  #stage {
+    position: fixed; inset: 0; cursor: crosshair; touch-action: manipulation; user-select: none;
+    background: linear-gradient(var(--sky-top) 0%, var(--sky-low) 82%, var(--water) 82%, var(--sky-top) 100%);
+  }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  header {
+    position: absolute; top: 0; left: 0; right: 0;
+    padding-top: calc(20px + env(safe-area-inset-top, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
+    pointer-events: none;
+  }
+  header > div { flex: 1; min-width: 0; }
+  h1 { margin: 0; font: 400 clamp(26px, 4vw, 40px)/1.1 var(--display); letter-spacing: .01em; }
+  .hint { margin: 6px 0 0; color: var(--dim); font-size: 14px; }
+  .notice { margin: 8px 0 0; color: var(--ember); font-size: 14px; font-weight: 600; }
+  .touch { display: none; }
+  @media (hover: none) { .mouse { display: none; } .touch { display: inline; } }
+
+  button { font: inherit; color: inherit; cursor: pointer; }
+  button:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+  #sound {
+    pointer-events: auto; flex: none; background: rgba(11, 10, 36, .6);
+    border: 1px solid var(--line); border-radius: 6px; padding: 7px 12px; font-size: 13px;
+  }
+  #sound[aria-pressed="true"] { border-color: var(--ember); color: var(--ember); }
+
+  #panel {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    padding-block: 12px calc(18px + env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 28px;
+    pointer-events: none;
+  }
+  #key {
+    pointer-events: auto; width: 92px; height: 72px; flex: none; padding: 8px 10px;
+    display: flex; align-items: flex-start; justify-content: flex-start;
+    font: 500 19px var(--mono); color: #2b2438; background: var(--ink);
+    border: 0; border-radius: 8px; box-shadow: 0 6px 0 #8d84a3;
+  }
+  .stats { display: flex; gap: 24px; font-variant-numeric: tabular-nums; }
+  .stat { min-width: 64px; }
+  .stat b { display: block; font: 500 clamp(22px, 3.2vw, 32px)/1.1 var(--mono); }
+  .stat span { color: var(--dim); font-size: 12px; }
+  #shell-size { margin-left: auto; min-width: 0; }
+  #shell-size .cap { color: var(--dim); font-size: 12px; margin-bottom: 6px; }
+  ol { list-style: none; margin: 0; padding: 0; display: flex; gap: 4px; align-items: flex-end; }
+  li {
+    font: 500 12px var(--mono); color: var(--dim); text-align: center; width: 46px;
+    padding-top: 4px; border-top: 4px solid var(--line);
+  }
+  li.on { color: var(--ember); border-top-color: var(--ember); }
+  @media (max-width: 560px) {
+    #shell-size { margin-left: 0; width: 100%; order: 3; }
+    li { flex: 1; width: auto; }
+    .stats { gap: 16px; }
+    .stat { min-width: 52px; }
+  }
+</style>
+
+<div id="stage">
+  <canvas id="sky"></canvas>
+  <header>
+    <div>
+      <h1>ESC 불꽃놀이</h1>
+      <p class="hint"><span class="mouse">ESC를 빠르게 연타할수록 큰 불꽃이 터집니다.</span><span class="touch">화면을 빠르게 연타할수록 큰 불꽃이 터집니다.</span></p>
+      <p class="notice" id="notice" hidden>화면을 한 번 클릭하면 ESC가 작동합니다.</p>
+    </div>
+    <button id="sound" type="button" aria-pressed="false">소리 켜기</button>
+  </header>
+  <div id="panel">
+    <button id="key" type="button" aria-label="폭죽 터뜨리기">esc</button>
+    <div class="stats">
+      <div class="stat"><b id="combo">0</b><span>연속 콤보</span></div>
+      <div class="stat"><b id="gap">—</b><span>입력 간격 ms</span></div>
+      <div class="stat"><b id="total">0</b><span>쏘아 올린 수</span></div>
+    </div>
+    <div id="shell-size">
+      <div class="cap">불꽃 크기 (호수)</div>
+      <ol id="ladder"></ol>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const stage = document.getElementById('stage');
+  const cv = document.getElementById('sky');
+  const ctx = cv.getContext('2d', { alpha: true });
+  const $ = id => document.getElementById(id);
+  const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Shell sizes follow the "호" scale used for real firework shells; faster input earns a bigger one.
+  const TIERS = [
+    { name: '3호',  under: Infinity, shells: 1, radius: 120, count: 90 },
+    { name: '5호',  under: 260, shells: 1, radius: 165, count: 130 },
+    { name: '10호', under: 180, shells: 2, radius: 210, count: 170 },
+    { name: '20호', under: 130, shells: 3, radius: 255, count: 210 },
+    { name: '30호', under: 95,  shells: 4, radius: 310, count: 260 },
+  ];
+  const COMBO_WINDOW = 700;
+  const MAX_PARTICLES = 13000;
+  const COLORS = [
+    ['hsl(44 100% 66%)',  'hsl(18 100% 60%)'],
+    ['hsl(348 100% 68%)', 'hsl(40 100% 72%)'],
+    ['hsl(178 90% 62%)',  'hsl(212 100% 70%)'],
+    ['hsl(276 95% 74%)',  'hsl(328 100% 70%)'],
+    ['hsl(128 80% 64%)',  'hsl(56 100% 68%)'],
+    ['hsl(42 30% 92%)',   'hsl(200 90% 72%)'],
+  ];
+  const KINDS = ['peony', 'peony', 'ring', 'willow', 'double'];
+
+  const ladder = $('ladder');
+  TIERS.forEach(t => {
+    const li = document.createElement('li');
+    li.textContent = t.name;
+    ladder.append(li);
+  });
+
+  let W = 0, H = 0, dpr = 1, horizon = 0, scale = 1, skyline = null;
+  function resize() {
+    dpr = Math.min(devicePixelRatio || 1, 2);
+    W = innerWidth; H = innerHeight;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    horizon = H * 0.82;
+    scale = Math.max(0.55, Math.min(W, H * 1.4) / 1000);
+    skyline = new Path2D();
+    skyline.moveTo(0, horizon);
+    let x = 0, i = 1;
+    while (x < W) {
+      const w = 14 + (i * 37 % 34);
+      const h = 8 + (i * 53 % 46) * (0.45 + 0.55 * Math.abs(Math.sin(i * 0.31)));
+      skyline.lineTo(x, horizon - h);
+      skyline.lineTo(x + w, horizon - h);
+      x += w; i++;
+    }
+    skyline.lineTo(W, horizon);
+    skyline.closePath();
+  }
+  addEventListener('resize', resize);
+  resize();
+
+  const bursts = [];
+  let alive = 0;
+
+  function makeBurst(x, y, tier, delay, kind) {
+    const pal = COLORS[Math.floor(Math.random() * COLORS.length)];
+    kind = kind || KINDS[Math.floor(Math.random() * KINDS.length)];
+    const R = tier.radius * scale * (0.9 + Math.random() * 0.25);
+    const n = tier.count;
+    const willow = kind === 'willow';
+    const k = willow ? 1.9 : 3.1;
+    const b = {
+      x, y, n, k, t: -delay, pal, kind,
+      life: willow ? 3.0 : 1.9 + tier.shells * 0.12,
+      g: (willow ? 62 : 80) * scale,
+      split: kind === 'double' ? Math.floor(n * 0.45) : n,
+      p: new Float32Array(n * 5),
+      w: Math.max(1.1, 1.8 * scale),
+      started: false,
+    };
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      let s;
+      if (kind === 'ring') {
+        s = 1 + (Math.random() - 0.5) * 0.06;
+      } else if (kind === 'double' && i < b.split) {
+        s = 0.42 + Math.random() * 0.1;
+      } else {
+        // A uniform sphere of stars seen from the side.
+        const z = Math.random() * 2 - 1;
+        s = Math.sqrt(1 - z * z) * (0.93 + Math.random() * 0.07);
+      }
+      const v = s * R * k;
+      const o = i * 5;
+      b.p[o] = x; b.p[o + 1] = y;
+      b.p[o + 2] = Math.cos(a) * v;
+      b.p[o + 3] = Math.sin(a) * v;
+      b.p[o + 4] = 0.72 + Math.random() * 0.28;
+    }
+    bursts.push(b);
+    alive += n;
+    while (alive > MAX_PARTICLES && bursts.length > 1) alive -= bursts.shift().n;
+  }
+
+  function trace(path, b, from, to, age, frame) {
+    const p = b.p, tail = 0.05;
+    for (let i = from; i < to; i++) {
+      const o = i * 5, a = age / p[o + 4];
+      if (a >= 1) continue;
+      if (a > 0.6 && (i * 7 + frame) % 5 < 2) continue;  // twinkle while dying
+      path.moveTo(p[o] - p[o + 2] * tail, p[o + 1] - p[o + 3] * tail);
+      path.lineTo(p[o] + 0.01, p[o + 1]);
+    }
+  }
+
+  let last = performance.now(), frame = 0;
+  function tick(now) {
+    const dt = Math.min((now - last) / 1000, 0.05);
+    last = now; frame++;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, 0, W, horizon); ctx.clip();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    let flashes = 0;
+
+    for (let j = bursts.length - 1; j >= 0; j--) {
+      const b = bursts[j];
+      b.t += dt;
+      if (b.t < 0) continue;
+      if (!b.started) { b.started = true; bang(b.n); }
+      const age = b.t / b.life;
+      if (age >= 1) { alive -= b.n; bursts.splice(j, 1); continue; }
+
+      const drag = Math.exp(-b.k * dt), p = b.p;
+      for (let i = 0; i < b.n; i++) {
+        const o = i * 5;
+        p[o + 2] *= drag;
+        p[o + 3] = p[o + 3] * drag + b.g * dt;
+        p[o] += p[o + 2] * dt;
+        p[o + 1] += p[o + 3] * dt;
+      }
+
+      const fade = age < 0.55 ? 1 : Math.pow(1 - (age - 0.55) / 0.45, 1.4);
+      const dying = age > 0.5;
+
+      if (b.t < 0.14 && !calm && flashes < 2) {
+        flashes++;   // capped so fast mashing never whites out or strobes the screen
+        const r = (40 + b.n * 0.25) * scale, g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, r);
+        g.addColorStop(0, `rgba(255,245,225,${0.22 * (1 - b.t / 0.14)})`);
+        g.addColorStop(1, 'rgba(255,245,225,0)');
+        ctx.globalAlpha = 1; ctx.fillStyle = g;
+        ctx.fillRect(b.x - r, b.y - r, r * 2, r * 2);
+      }
+
+      const groups = b.split < b.n
+        ? [[0, b.split, b.pal[1]], [b.split, b.n, b.pal[0]]]
+        : [[0, b.n, dying ? b.pal[1] : b.pal[0]]];
+      for (const [from, to, color] of groups) {
+        const path = new Path2D();
+        trace(path, b, from, to, age, frame);
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = fade * 0.14; ctx.lineWidth = b.w * 3.6; ctx.stroke(path);
+        ctx.globalAlpha = fade;        ctx.lineWidth = b.w;       ctx.stroke(path);
+      }
+    }
+    ctx.restore();
+
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#07061a';
+    ctx.fill(skyline);
+
+    // River reflection: the sky, flipped and squeezed into the water band.
+    const hz = Math.round(horizon * dpr), wH = cv.height - hz, srcH = Math.min(hz, wH * 4);
+    if (wH > 0) {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, -1, 0, hz + wH);
+      ctx.globalAlpha = 0.34;
+      ctx.drawImage(cv, 0, hz - srcH, cv.width, srcH, 0, 0, cv.width, wH);
+      ctx.restore();
+    }
+
+    if (combo && performance.now() - lastPress > COMBO_WINDOW) resetCombo();
+    requestAnimationFrame(tick);
+  }
+
+  // Input ---------------------------------------------------------------
+  let lastPress = -Infinity, combo = 0, total = 0;
+
+  function tierFor(gap) {
+    let found = 0;
+    TIERS.forEach((t, i) => { if (gap < t.under) found = i; });
+    return found;
+  }
+  function showTier(index) {
+    [...ladder.children].forEach((li, i) => li.classList.toggle('on', i <= index));
+  }
+  function resetCombo() {
+    combo = 0;
+    $('combo').textContent = '0';
+    $('gap').textContent = '—';
+    showTier(-1);
+  }
+  function randomSpot() {
+    return [W * (0.12 + Math.random() * 0.76), horizon * (0.16 + Math.random() * 0.52)];
+  }
+
+  function fire(at) {
+    const now = performance.now();
+    const gap = now - lastPress;
+    const fresh = gap > COMBO_WINDOW;
+    lastPress = now;
+    const index = fresh ? 0 : tierFor(gap);
+    const tier = TIERS[index];
+    combo = fresh ? 1 : combo + 1;
+
+    for (let i = 0; i < tier.shells; i++) {
+      const [x, y] = i === 0 && at ? at : randomSpot();
+      makeBurst(x, y, tier, i * 0.035);
+      total++;
+    }
+    $('combo').textContent = combo;
+    $('gap').textContent = fresh ? '—' : Math.round(gap);
+    $('total').textContent = total;
+    showTier(index);
+    if (!calm) $('key').animate(
+      [{ transform: 'translateY(5px)', boxShadow: '0 1px 0 #8d84a3' }, { transform: 'none', boxShadow: '0 6px 0 #8d84a3' }],
+      { duration: 110, easing: 'ease-out' }
+    );
+  }
+
+  addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    if (!e.repeat) fire();   // holding the key does not count: each shell needs a real press
+  }, true);
+
+  stage.addEventListener('pointerdown', e => {
+    if (e.target.closest('#sound')) return;
+    fire(e.clientY < horizon && !e.target.closest('#key') ? [e.clientX, e.clientY] : null);
+  });
+
+  const notice = $('notice');
+  const syncFocus = () => { notice.hidden = document.hasFocus() || matchMedia('(hover: none)').matches; };
+  addEventListener('focus', syncFocus);
+  addEventListener('blur', syncFocus);
+  try { window.focus(); } catch (_) {}
+  syncFocus();
+
+  // Sound: Esc does not count as a user gesture in browsers, so audio starts from this button.
+  let audio = null, noise = null, soundOn = false;
+  $('sound').addEventListener('click', e => {
+    soundOn = !soundOn;
+    e.currentTarget.setAttribute('aria-pressed', soundOn);
+    e.currentTarget.textContent = soundOn ? '소리 끄기' : '소리 켜기';
+    if (soundOn && !audio) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      audio = new AC();
+      noise = audio.createBuffer(1, audio.sampleRate * 0.8, audio.sampleRate);
+      const d = noise.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    if (audio) audio.resume();
+    e.currentTarget.blur();
+  });
+  function bang(size) {
+    if (!soundOn || !audio) return;
+    const t = audio.currentTime, src = audio.createBufferSource();
+    const f = audio.createBiquadFilter(), g = audio.createGain();
+    const big = size / 260;
+    src.buffer = noise;
+    f.type = 'lowpass'; f.frequency.setValueAtTime(2400 - big * 1500, t);
+    f.frequency.exponentialRampToValueAtTime(90, t + 0.5);
+    g.gain.setValueAtTime(0.16 + big * 0.28, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.3 + big * 0.4);
+    src.connect(f); f.connect(g); g.connect(audio.destination);
+    src.start(t, Math.random() * 0.1, 0.75);
+  }
+
+  // Opening salute so the first frame already shows the sky in use.
+  if (!calm) {
+    makeBurst(W * 0.26, horizon * 0.42, TIERS[3], 0, 'peony');
+    makeBurst(W * 0.62, horizon * 0.34, TIERS[4], 0.12, 'double');
+    makeBurst(W * 0.82, horizon * 0.52, TIERS[2], 0.26, 'willow');
+  }
+  requestAnimationFrame(t => { last = t; tick(t); });
+})();
+</script>
+</html>
